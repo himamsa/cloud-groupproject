@@ -101,18 +101,92 @@ def demographicsandengagement():
     """
     brand_pref_df = pd.read_sql_query(brand_pref_query, conn)
 
+    # Add new query for organic vs conventional sales
+    organic_sales_query = """
+        SELECT 
+            CASE 
+                WHEN pr.NATURAL_ORGANIC_FLAG = 'Y' THEN 'Organic'
+                ELSE 'Conventional'
+            END as product_type,
+            SUM(tr.SPEND) as total_sales
+        FROM transactions tr
+        INNER JOIN products pr ON tr.PRODUCT_NUM = pr.PRODUCT_NUM
+        GROUP BY pr.NATURAL_ORGANIC_FLAG
+    """
+    organic_sales_df = pd.read_sql_query(organic_sales_query, conn)
+
+    # Create pie chart
+    organic_sales_fig = px.pie(
+        organic_sales_df,
+        values='total_sales',
+        names='product_type',
+        title='Organic vs Conventional Sales Distribution',
+        color_discrete_sequence=['#2ecc71', '#3498db'],
+        hole=0.4  # Creates a donut chart
+    )
+
+    # Update layout
+    organic_sales_fig.update_layout(
+        showlegend=True,
+        legend=dict(
+            orientation="h",
+            yanchor="bottom",
+            y=1.02,
+            xanchor="right",
+            x=1
+        ),
+        margin=dict(l=20, r=20, t=40, b=20),
+        height=400,
+        width=600
+    )
+
+    # Update traces
+    organic_sales_fig.update_traces(
+        textposition='inside',
+        textinfo='percent+label',
+        hovertemplate="<b>%{label}</b><br>" +
+                    "Sales: $%{value:,.2f}<br>" +
+                    "Percentage: %{percent:.1%}<extra></extra>"
+    )
+
+    # Add to template variables
+    organic_sales_plot = organic_sales_fig.to_html(full_html=False)
+
     conn.close()
 
     # Household Size Analysis
+    # First convert HH_SIZE to string type
     hh_size_analysis = data_df.groupby("HH_SIZE")["TOTAL_SPEND"].sum().reset_index()
-    hh_size_fig = px.bar(hh_size_analysis, x="HH_SIZE", y="TOTAL_SPEND", title="Household Size vs Total Spend")
+    hh_size_analysis['HH_SIZE'] = hh_size_analysis['HH_SIZE'].astype(str)
+
+    # Then apply the filtering
+    hh_size_analysis = hh_size_analysis[
+        (hh_size_analysis['HH_SIZE'].notna()) & 
+        (hh_size_analysis['HH_SIZE'].astype(str).str.strip() != '') & 
+        (hh_size_analysis['HH_SIZE'].astype(str).str.strip().str.lower() != 'null')
+    ]
+    hh_size_fig = px.bar(hh_size_analysis, x="HH_SIZE", y="TOTAL_SPEND", title="Household Size vs Total Spend"
+                         ,
+                        labels={'HH_SIZE': 'Household Size', 'TOTAL_SPEND': 'Total Spend ($)'})
 
     # Income Range Analysis
     income_analysis = data_df.groupby("INCOME_RANGE")["TOTAL_SPEND"].sum().reset_index()
+    income_analysis['INCOME_RANGE'] = income_analysis['INCOME_RANGE'].astype(str)
+    income_analysis = income_analysis[
+        (income_analysis['INCOME_RANGE'].notna()) & 
+        (income_analysis['INCOME_RANGE'].str.strip() != '') & 
+        (income_analysis['INCOME_RANGE'].str.strip().str.lower() != 'null')
+    ]
     income_fig = px.bar(income_analysis, x="INCOME_RANGE", y="TOTAL_SPEND", title="Income Range vs Total Spend")
 
     # Children Analysis
     children_analysis = data_df.groupby("CHILDREN")["TOTAL_SPEND"].sum().reset_index()
+    children_analysis['CHILDREN'] = children_analysis['CHILDREN'].astype(str)
+    children_analysis = children_analysis[
+        (children_analysis['CHILDREN'].notna()) & 
+        (children_analysis['CHILDREN'].str.strip() != '') & 
+        (children_analysis['CHILDREN'].str.strip().str.lower() != 'null')
+    ]
     children_fig = px.bar(children_analysis, x="CHILDREN", y="TOTAL_SPEND", title="Presence of Children vs Total Spend")
 
     # Year-over-Year Spend Analysis
@@ -213,7 +287,8 @@ def demographicsandengagement():
                            yoy_spend_plot=yoy_spend_plot, 
                            category_popularity_plot=category_popularity_plot, 
                            seasonal_plot=seasonal_plot,
-                           brand_pref_plot=brand_pref_plot)
+                           brand_pref_plot=brand_pref_plot,
+                           organic_sales_plot=organic_sales_plot)
 
 @app.route('/')
 def index():
@@ -295,7 +370,7 @@ def get_dashboard_data():
                 cleaned_row[columns[i]] = "N/A"
             elif isinstance(value, str):
                 cleaned_value = value.strip()
-                cleaned_row[columns[i]] = "N/A" if cleaned_value == "" else cleaned_value
+                cleaned_row[columns[i]] = "N/A" if cleaned_value == "" or cleaned_value.lower() == "null" else cleaned_value
             else:
                 cleaned_row[columns[i]] = value
         data.append(cleaned_row) 
@@ -618,18 +693,22 @@ def analyze_transactions():
 def retention_analysis():
     households, products, transactions = load_data()
     
-    # Calculate purchase gaps
-    transactions['PURCHASE_DATE'] = pd.to_datetime(transactions['WEEK_NUM'].astype(str) + 
-                                                 transactions['YEAR'].astype(str), format='%W%Y')
+    # Create proper date format using both WEEK_NUM and YEAR
+    transactions['PURCHASE_DATE'] = pd.to_datetime(
+        transactions['YEAR'].astype(str) + '-W' + 
+        transactions['WEEK_NUM'].astype(str).str.zfill(2) + '-1', 
+        format='%Y-W%W-%w'
+    )
     
+    # Calculate purchase gaps
     purchase_gaps = transactions.groupby('HSHD_NUM')['PURCHASE_DATE'].agg(['min', 'max'])
     purchase_gaps['days_active'] = (purchase_gaps['max'] - purchase_gaps['min']).dt.days
     
-    # Calculate customer value
+    # Calculate customer value metrics
     customer_value = transactions.groupby('HSHD_NUM').agg({
         'SPEND': 'sum',
-        'BASKET_NUM': 'count'
-    })
+        'BASKET_NUM': 'nunique'  # Changed to nunique for unique basket count
+    }).fillna(0)
     
     return jsonify({
         'customer_lifetime': purchase_gaps['days_active'].tolist(),

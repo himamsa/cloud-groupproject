@@ -20,6 +20,34 @@
     padding: 20px;
 }
 
+.risk-summary {
+    background: white;
+    padding: 15px;
+    border-radius: 8px;
+    margin-bottom: 20px;
+    box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+}
+
+.household-scores {
+    background: white;
+    padding: 15px;
+    border-radius: 8px;
+    box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+}
+
+.score-table {
+    max-height: 400px;
+    overflow-y: auto;
+}
+
+.table-danger {
+    background-color: rgba(220, 53, 69, 0.1);
+}
+
+.table-success {
+    background-color: rgba(40, 167, 69, 0.1);
+}
+
 .btn-primary {
     display: inline-flex;
     align-items: center;
@@ -162,16 +190,40 @@
 function loadAllAnalytics() {
             // Load engagement metrics
             $.get('/analyze_transactions', function(data) {
-                plotEngagementMetrics(data);
-                
-                // Update metrics cards
-                $('#risk_metric').html(`
-                    <h4>${data.at_risk_count}</h4>
-                    <p>out of ${data.total_customers} customers</p>
-                `);
-            }).fail(function(error) {
-                console.error('Error loading engagement metrics:', error);
-            });
+    // Update metrics cards with risk information
+    $('#risk_metric').html(`
+        <div class="risk-summary">
+            <h4>Risk Analysis</h4>
+            <p><strong>At Risk:</strong> ${data.at_risk_count} out of ${data.total_customers} customers</p>
+            <p><strong>Risk Threshold:</strong> ${(data.engagement_metrics.risk_threshold * 100).toFixed(2)}%</p>
+        </div>
+        <div class="household-scores">
+            <h4>Household Risk Scores</h4>
+            <div class="score-table">
+                <table class="table table-striped">
+                    <thead>
+                        <tr>
+                            <th>Household</th>
+                            <th>Risk Score</th>
+                            <th>Status</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        ${data.engagement_metrics.households.map((household, index) => `
+                            <tr class="${data.engagement_metrics.scores[index] > data.engagement_metrics.risk_threshold ? 'table-danger' : 'table-success'}">
+                                <td>${household}</td>
+                                <td>${(data.engagement_metrics.scores[index] * 100).toFixed(2)}%</td>
+                                <td>${data.engagement_metrics.scores[index] > data.engagement_metrics.risk_threshold ? 'At Risk' : 'Normal'}</td>
+                            </tr>
+                        `).join('')}
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    `);
+}).fail(function(error) {
+    console.error('Error loading engagement metrics:', error);
+});
             
             // Load retention metrics
             $.get('/retention_analysis', function(data) {

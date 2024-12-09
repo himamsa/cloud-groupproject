@@ -29,8 +29,6 @@ connection_string = f"mssql+pyodbc://{username}:{password}@{server}/{database}?d
 
 # Create an SQLAlchemy engine
 engine = create_engine(connection_string)
-#engine = create_engine("mysql+pymysql://{username}:{password}@{server}/{database}"
- #       .format(server='retaildata-server.database.windows.net', database='RetailData', username='user', password='Retail@1234'))
 
 # Database connection function using pyodbc
 def get_db_connection():
@@ -45,8 +43,8 @@ def get_db_connection():
 
 @app.route('/demographicsandengagement', methods=['GET'])
 def demographicsandengagement():
-    conn = get_db_connection()
     
+    conn = get_db_connection()
     # Query to analyze total spend based on household size, income range, and presence of children
     query = """
         SELECT hh.HH_SIZE, hh.INCOME_RANGE, hh.CHILDREN, SUM(tr.SPEND) AS TOTAL_SPEND
@@ -123,15 +121,81 @@ def demographicsandengagement():
     # Product Category Popularity Analysis
     category_popularity_fig = px.bar(category_popularity_df, x="DEPARTMENT", y="TOTAL_UNITS", title="Product Categories by Popularity")
 
-    # Cross-Selling Analysis
-    cross_sell_fig = px.scatter(cross_sell_df.head(20), x="PRODUCT_A", y="PRODUCT_B", size="PAIR_COUNT", title="Top 20 Product Combinations Driving Cross-Selling")
-
     # Seasonal Spending Patterns
     seasonal_fig = px.line(seasonal_df, x="WEEK_NUM", y="TOTAL_SPEND", title="Seasonal Spending Patterns")
 
     # Brand and Organic Preferences
     brand_pref_fig = px.bar(brand_pref_df, x="BRAND_TY", y="TOTAL_UNITS", color="NATURAL_ORGANIC_FLAG", 
                             barmode="group", title="Customer Preferences for Private vs. National Brands and Organic Items")
+    
+    fig_settings = {
+        'height': 400,  # Larger height
+        'width': 600,   # Larger width
+        'template': 'plotly_white'  # Clean white template
+    }
+
+    # Update each plot with improved styling
+    # Create the bar chart without margin
+    hh_size_fig = px.bar(hh_size_analysis, x='HH_SIZE', y='TOTAL_SPEND', title='Household Size vs Total Spend')
+
+    # Then update the layout to adjust margins
+    hh_size_fig.update_layout(
+        margin=dict(l=20, r=20, t=40, b=20)
+    )
+    hh_size_fig.update_traces(hovertemplate='Size: %{x}<br>Spend: $%{y:,.2f}')
+
+    income_fig = px.bar(income_analysis, 
+        x="INCOME_RANGE", 
+        y="TOTAL_SPEND", 
+        title="Income Range vs Total Spend",
+        color_discrete_sequence=['#2ca02c'],  # Professional green color
+        labels={'INCOME_RANGE': 'Income Range', 'TOTAL_SPEND': 'Total Spend ($)'},
+        **fig_settings
+    )
+
+    children_fig = px.bar(children_analysis, 
+        x="CHILDREN", 
+        y="TOTAL_SPEND", 
+        title="Presence of Children vs Total Spend",
+        color_discrete_sequence=['#ff7f0e'],  # Professional orange color
+        labels={'CHILDREN': 'Number of Children', 'TOTAL_SPEND': 'Total Spend ($)'},
+        **fig_settings
+    )
+
+    yoy_spend_fig = px.line(yoy_spend_df, 
+        x="YEAR", 
+        y="TOTAL_SPEND", 
+        title="Year-over-Year Household Spending",
+        line_shape='spline',  # Smoother line
+        markers=True,         # Show markers
+        **fig_settings
+    )
+
+    category_popularity_fig = px.bar(category_popularity_df, 
+        x="DEPARTMENT", 
+        y="TOTAL_UNITS", 
+        title="Product Categories by Popularity",
+        color_discrete_sequence=['#9467bd'],  # Professional purple color
+        **fig_settings
+    )
+
+    seasonal_fig = px.line(seasonal_df, 
+        x="WEEK_NUM", 
+        y="TOTAL_SPEND", 
+        title="Seasonal Spending Patterns",
+        line_shape='spline',
+        markers=True,
+        **fig_settings
+    )
+
+    brand_pref_fig = px.bar(brand_pref_df, 
+        x="BRAND_TY", 
+        y="TOTAL_UNITS", 
+        color="NATURAL_ORGANIC_FLAG", 
+        barmode="group", 
+        title="Brand and Organic Preferences",
+        **fig_settings
+    )
 
     # Convert plots to JSON for rendering
     hh_size_plot = hh_size_fig.to_html(full_html=False)
@@ -139,7 +203,6 @@ def demographicsandengagement():
     children_plot = children_fig.to_html(full_html=False)
     yoy_spend_plot = yoy_spend_fig.to_html(full_html=False)
     category_popularity_plot = category_popularity_fig.to_html(full_html=False)
-    cross_sell_plot = cross_sell_fig.to_html(full_html=False)
     seasonal_plot = seasonal_fig.to_html(full_html=False)
     brand_pref_plot = brand_pref_fig.to_html(full_html=False)
 
@@ -149,7 +212,6 @@ def demographicsandengagement():
                            children_plot=children_plot, 
                            yoy_spend_plot=yoy_spend_plot, 
                            category_popularity_plot=category_popularity_plot, 
-                           cross_sell_plot=cross_sell_plot,
                            seasonal_plot=seasonal_plot,
                            brand_pref_plot=brand_pref_plot)
 
@@ -412,6 +474,34 @@ def train_model():
         'model_filename': model_filename
     })
 
+@app.route('/get_model_status')
+def get_model_status():
+    try:
+        conn = get_db_connection()
+        cursor = conn.cursor()
+        
+        # Get the latest model metrics
+        cursor.execute("""
+            SELECT TOP 1 model_filename, mse, timestamp
+            FROM model_metrics
+            ORDER BY timestamp DESC
+        """)
+        
+        model_info = cursor.fetchone()
+        conn.close()
+        
+        if model_info:
+            return jsonify({
+                'exists': True,
+                'model_filename': model_info[0],
+                'mse': model_info[1],
+                'last_trained': model_info[2].strftime("%Y-%m-%d %H:%M:%S")
+            })
+        return jsonify({'exists': False})
+        
+    except Exception as e:
+        return jsonify({'error': str(e)})
+
 @app.route('/predict')
 def predict():
     gb_model = joblib.load('gb_model.pkl')
@@ -581,6 +671,55 @@ def predictproducts():
 def logout():
     # Add any session clearing logic here if needed
     return redirect(url_for('signup'))
+
+@app.route('/uploaddatasets', methods =['GET','POST'])
+def uploaddatasets():
+    return render_template('UploadData.html')
+
+@app.route('/storeuploadedhouseholdfile', methods =['GET','POST'])
+def storeuploadedhouseholdfile():
+    message = 'Please upload file again!!'
+    if request.method == 'POST':  # check if the method is post
+        f = request.files['file']  # get the file from the files object
+        # Saving he file in the required destination
+        if check_file_extension(f.filename):
+            f.save(os.path.join(app.config['Upload_folder_HouseHolds'],secure_filename(f.filename)))  # this will secure the file
+            readCSVandloaddata(os.path.join(app.config['Upload_folder_HouseHolds'], secure_filename(f.filename)),"households");
+            message='file uploaded successfully'  # Display thsi message after uploading
+        else:
+            message='The file extension is not allowed'
+
+    return render_template('UploadData.html',message=message)
+
+@app.route('/storeuploadedProductfile', methods =['GET','POST'])
+def storeuploadedProductfile():
+    message = 'Please upload file again!!'
+    if request.method == 'POST':  # check if the method is post
+        f = request.files['file']  # get the file from the files object
+        # Saving he file in the required destination
+        if check_file_extension(f.filename):
+            f.save(os.path.join(app.config['Upload_folder_Products'],secure_filename(f.filename)))  # this will secure the file
+            readCSVandloaddata(os.path.join(app.config['Upload_folder_Products'], secure_filename(f.filename)),"products");
+            message='file uploaded successfully'  # Display thsi message after uploading
+        else:
+            message='The file extension is not allowed'
+
+    return render_template('UploadData.html',messageProducts=message)
+
+@app.route('/storeuploadedTransactionfile', methods =['GET','POST'])
+def storeuploadedTransactionfile():
+    message = 'Please upload file again!!'
+    if request.method == 'POST':  # check if the method is post
+        f = request.files['file']  # get the file from the files object
+        # Saving he file in the required destination
+        if check_file_extension(f.filename):
+            f.save(os.path.join(app.config['Upload_folder_Transactions'], secure_filename(f.filename)))  # this will secure the file
+            readCSVandloaddata(os.path.join(app.config['Upload_folder_Transactions'], secure_filename(f.filename)),"transactions");
+            message='file uploaded successfully'  # Display thsi message after uploading
+        else:
+            message='The file extension is not allowed'
+
+    return render_template('UploadData.html',messageTransactions=message)
 
 if __name__ == '__main__':
     app.run(debug=True)

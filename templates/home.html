@@ -123,6 +123,9 @@
             <a href="{{ url_for('demographicsandengagement') }}" class="btn btn-primary">
                 <i class="fas fa-chart-bar mr-2"></i>Dashboards
             </a>
+            <a href="{{ url_for('uploaddatasets') }}" class="btn btn-primary">
+                <i class="fas fa-chart-bar mr-2"></i>Upload
+            </a>
             <a href="{{ url_for('predictproducts') }}" class="btn btn-primary mr-2">
                 <i class="fas fa-chart-bar mr-2"></i>Predict Products
             </a>
@@ -139,7 +142,7 @@
             <form id="searchForm">
                 <div class="form-group select-dropdown">
                     <select id="hshd_num" class="form-control" onchange="getDashboardData()">
-                        <option value="" disabled selected>Select HSHD_NUM</option>
+                        <option value="" disabled selected>Select Household Num</option>
                         {% for hshd_num in hshd_nums %}
                             <option value="{{ hshd_num.HSHD_NUM }}">{{ hshd_num.HSHD_NUM }}</option>
                         {% endfor %}
